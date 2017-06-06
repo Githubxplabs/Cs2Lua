@@ -155,6 +155,9 @@ function typecast(obj, t, isEnum)
 	  elseif v < 0 then
 	    v = -((-v) % 0x100000000);
 	  end;
+	  if t==CS.System.Int32 and v>0x7fffffff then
+	    v = v - 0xffffffff - 1;
+	  end;
 	  return v;
 	elseif t == CS.System.Int16 or t == CS.System.UInt16 or t == CS.System.Char then
 	  local v = tonumber(obj);
@@ -164,6 +167,9 @@ function typecast(obj, t, isEnum)
 	  elseif v < 0 then
 	    v = -((-v) % 0x10000);
 	  end;
+	  if t==CS.System.Int16 and v>0x7fff then
+	    v = v - 0xffff - 1;
+	  end;
 	  return v;
 	elseif t == CS.System.SByte or t == CS.System.Byte then
 	  local v = tonumber(obj);
@@ -172,6 +178,9 @@ function typecast(obj, t, isEnum)
 	    v = v % 0x100;
 	  elseif v < 0 then
 	    v = -((-v) % 0x100);
+	  end;
+	  if t==CS.System.SByte and v>0x7f then
+	    v = v - 0xff - 1;
 	  end;
 	  return v;
 	elseif t == CS.System.Boolean then
@@ -190,22 +199,16 @@ function typeas(obj, t, isEnum)
 		return tostring(obj);
 	elseif t == CS.System.Single or t ==	CS.System.Double then
 	  return tonumber(obj);
-	elseif t == CS.System.Int64 then
+	elseif t == CS.System.Int64 or t == CS.System.UInt64 then
 	  local v = tonumber(obj);
 	  v = math.floor(v);
 	  return v;
-	elseif t == CS.System.Int32 then
-	  local v = tonumber(obj);
-	  v = math.floor(v);
-	  return v % 0x100000000;
-	elseif t == CS.System.Int16 or t == CS.System.Char then
-	  local v = tonumber(obj);
-	  v = math.floor(v);
-	  return v % 0x10000;
+	elseif t == CS.System.Int32 or t == CS.System.UInt32 then
+	  return typecast(obj, t, isEnum);
+	elseif t == CS.System.Int16 or t == CS.System.UInt16 or t == CS.System.Char then
+	  return typecast(obj, t, isEnum);
 	elseif t == CS.System.SByte or t == CS.System.Byte then
-	  local v = tonumber(obj);
-	  v = math.floor(v);
-	  return v % 0x100;
+	  return typecast(obj, t, isEnum);
 	elseif t == CS.System.Boolean then
 		return obj;
 	elseif isEnum then
@@ -222,7 +225,7 @@ function __typeis_check_xlua(objType, t)
 	if objType == tType then
 		return true;
 	end
-	if objType:IsSubclassOf(tType) then
+	if tType:IsAssignableFrom(objType) then
 		return true;
 	end
 	return false;
@@ -414,14 +417,14 @@ __mt_index_of_array = function(t, k)
     return function(obj, v) table.insert(obj, v); end;
   elseif k=="Remove" then
     return function(obj, p)
-      local pos = 1;
+    	local pos = 0;
       local ret = nil;
-      for k,v in pairs(obj) do		        
+      for i,v in ipairs(obj) do		        
         if isequal(v,p) then
+        	pos = i;
           ret=v;
           break;
         end;
-        pos=pos+1;		        
       end;
       if ret then
         table.remove(obj,pos);
@@ -430,7 +433,19 @@ __mt_index_of_array = function(t, k)
     end;
   elseif k=="RemoveAt" then
     return function(obj, ix)
-      table.remove(obj,ix+1);
+      table.remove(obj, ix+1);
+    end;
+  elseif k=="RemoveAll" then
+    return function(obj, pred)
+    	local deletes = {};
+      for i,v in ipairs(obj) do		        
+        if pred(v) then
+        	table.insert(deletes, i);
+        end;
+      end;
+      for i,v in ipairs(deletes) do
+      	table.remove(obj, v);
+      end;
     end;
   elseif k=="AddRange" then
     return function(obj, coll)
@@ -1328,11 +1343,16 @@ function delegationset(isevent, t, intf, k, handler)
   if k then
     v = t[k];
   end;
-  local n = #v;
-  for i=1,n do
-    table.remove(v);
+  if not v or type(v)~="table" then
+  	--取不到值或者值不是表，则有可能是普通的特性访问
+  	t[k] = handler;
+  else
+	  local n = #v;
+	  for i=1,n do
+	    table.remove(v);
+	  end;
+	  table.insert(v,handler);
   end;
-  table.insert(v,handler);
 end;
 function delegationadd(isevent, t, intf, k, handler)
   local v = t;
@@ -1360,7 +1380,7 @@ function delegationremove(isevent, t, intf, k, handler)
   end;
 end;
 
-function externdelegationcomparewithnil(t, inf, k, isequal)
+function externdelegationcomparewithnil(isevent, t, inf, k, isequal)
   local v = t;
   if k then
     v = t[k];
@@ -1593,7 +1613,13 @@ function invokeforbasicvalue(obj, isEnum, class, method, ...)
 	elseif meta then
 		return obj[method](obj,...);
 	elseif method=="CompareTo" then
-	  return obj==args[1];
+	  if obj>args[1] then
+	    return 1;
+	  elseif obj<args[1] then
+	    return -1;
+	  else
+	    return 0;
+	  end;
 	elseif method=="ToString" then
 	  return tostring(obj);
 	end;
@@ -1717,6 +1743,26 @@ function getiterator(exp)
 				return nil;
 			end;
 		end;
+	end;
+end;
+
+function defaultvalue(type, typename, isExtern)
+	if type==CS.UnityEngine.Vector3 then
+		return CS.UnityEngine.Vector3.zero;
+	elseif type==CS.UnityEngine.Vector2 then
+		return CS.UnityEngine.Vector2.zero;
+	elseif type==CS.UnityEngine.Vector4 then
+		return CS.UnityEngine.Vector4.zero;
+	elseif type==CS.UnityEngine.Quaternion then
+		return CS.UnityEngine.Quaternion.identity;
+	elseif type==CS.UnityEngine.Color then
+		return CS.UnityEngine.Color.black;
+	elseif type==CS.UnityEngine.Color32 then
+		return CS.UnityEngine.Color32(0,0,0,0);
+	elseif isExtern then
+		return type();
+	else
+		return type.__new_object();
 	end;
 end;
 

@@ -400,6 +400,10 @@ namespace RoslynTool.CsToLua
                 }
             }
         }
+        private void OutputDefaultValue(ITypeSymbol type)
+        {
+            OutputDefaultValue(CodeBuilder, type);
+        }
         private void OutputConstValue(object val, object operOrSym)
         {
             OutputConstValue(CodeBuilder, val, operOrSym);
@@ -826,6 +830,27 @@ namespace RoslynTool.CsToLua
             const string c_IndentString = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
             return c_IndentString.Substring(0, indent);
         }
+        internal static void OutputDefaultValue(StringBuilder sb, ITypeSymbol type)
+        {
+            if (null != type) {
+                if (type.IsValueType) {
+                    if (SymbolTable.IsBasicType(type, false)) {
+                        if (type.Name == "Boolean")
+                            sb.Append("false");
+                        else
+                            sb.Append("0");
+                    } else {
+                        bool isExternal = !SymbolTable.Instance.IsCs2LuaSymbol(type);
+                        string fn = ClassInfo.GetFullName(type);
+                        sb.AppendFormat("defaultvalue({0}, \"{1}\", {2})", fn, fn, isExternal ? "true" : "false");
+                    }
+                } else {
+                    sb.Append("__cs2lua_nil_field_value");
+                }
+            } else {
+                sb.Append("__cs2lua_nil_field_value");
+            }
+        }
         internal static void OutputConstValue(StringBuilder sb, object val, object operOrSym)
         {
             string v = val as string;
@@ -954,7 +979,7 @@ namespace RoslynTool.CsToLua
         private static HashSet<string> s_UnsupportedUnaryOperators = new HashSet<string> { "&", "*" };
         private static HashSet<string> s_UnsupportedBinaryOperators = new HashSet<string> { "->" };
         //下面这个list的顺序要与utility.lua里的整数操作表__cs2lua_special_integer_operators一致（索引用作操作符识别常量）
-        private static List<string> s_SpecialIntegerOperators = new List<string> { "/", "%", "+", "-", "*", "++", "--", "<<", ">>", "&", "|", "^", "~" };
+        private static List<string> s_SpecialIntegerOperators = new List<string> { "/", "%", "+", "-", "*", "<<", ">>", "&", "|", "^", "~" };
 
         private static Dictionary<string, string> s_UnaryAlias = new Dictionary<string, string> { 
             {"!", "not"}

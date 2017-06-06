@@ -80,13 +80,15 @@ namespace RoslynTool.CsToLua
                 string prjOutputDir = "bin/Debug/";
                 nodes = SelectNodes(xmlDoc, "PropertyGroup");
                 foreach (XmlElement node in nodes) {
+                    string condition = node.GetAttribute("Condition");
                     var defNode = SelectSingleNode(node, "DefineConstants");
                     var pathNode = SelectSingleNode(node, "OutputPath");
                     if (null != defNode && null != pathNode) {
-                        string text = defNode.InnerText.Trim();                       
-                        if (text == "DEBUG" || text.IndexOf(";DEBUG;") > 0 || text.StartsWith("DEBUG;") || text.EndsWith(";DEBUG")) {
+                        string text = defNode.InnerText.Trim();
+                        if (condition.IndexOf("Debug") > 0 || condition.IndexOf("Release") < 0 && (text == "DEBUG" || text.IndexOf(";DEBUG;") > 0 || text.StartsWith("DEBUG;") || text.EndsWith(";DEBUG"))) {
                             preprocessors.AddRange(text.Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries));
                             prjOutputDir = pathNode.InnerText.Trim();
+                            break;
                         }
                     }
                 }
@@ -229,8 +231,9 @@ namespace RoslynTool.CsToLua
                         foreach (SyntaxTree tree in newTrees) {
                             bool ignore = IsIgnoredFile(ignoredFullPath, tree.FilePath);
                             bool isExtern = IsExternFile(externFullPath, tree.FilePath);
+                            bool isIntern = false;
                             if (internFullPath.Count > 0) {
-                                bool isIntern = IsInternFile(internFullPath, tree.FilePath);
+                                isIntern = IsInternFile(internFullPath, tree.FilePath);
                                 if (!isIntern && !ignore) {
                                     isExtern = true;
                                 }
@@ -257,8 +260,22 @@ namespace RoslynTool.CsToLua
                                         }
                                     }
                                 }
+                            } else {
+                                TypeAnalysis ta = new TypeAnalysis(model);
+                                ta.Visit(root);
+                                var symbols = ta.Symbols;
+                                foreach (var symbol in symbols) {
+                                    var type = symbol as INamedTypeSymbol;
+                                    if (null != type) {
+                                        string key = ClassInfo.SpecialGetFullTypeName(type, isExtern);
+                                        if (!SymbolTable.Instance.InternTypes.ContainsKey(key)) {
+                                            SymbolTable.Instance.InternTypes.Add(key, type);
+                                        }
+                                    }
+                                }
                             }
                         }
+                        SymbolTable.Instance.SymbolClassified();
                         foreach (SyntaxTree tree in newTrees) {
                             bool ignore = IsIgnoredFile(ignoredFullPath, tree.FilePath);
                             bool isExtern = IsExternFile(externFullPath, tree.FilePath);
@@ -381,6 +398,8 @@ namespace RoslynTool.CsToLua
             BuildExternEnums(enumBuilder);
             StringBuilder intfBuilder = new StringBuilder();
             BuildInterfaces(intfBuilder);
+            StringBuilder refExternBuilder = new StringBuilder();
+            BuildReferencedExternTypes(refExternBuilder);
             if (SymbolTable.ForSlua) {
                 File.Copy(Path.Combine(exepath, "lualib/utility_slua.lua"), Path.Combine(outputDir, string.Format("cs2lua__utility.{0}", outputExt)), true);
             } else if (SymbolTable.ForXlua) {
@@ -394,6 +413,7 @@ namespace RoslynTool.CsToLua
             File.WriteAllText(Path.Combine(outputDir, string.Format("cs2lua__attributes.{0}", outputExt)), attrBuilder.ToString());
             File.WriteAllText(Path.Combine(outputDir, string.Format("cs2lua__externenums.{0}", outputExt)), enumBuilder.ToString());
             File.WriteAllText(Path.Combine(outputDir, string.Format("cs2lua__interfaces.{0}", outputExt)), intfBuilder.ToString());
+            File.WriteAllText(Path.Combine(outputDir, "cs2lua__references.txt"), refExternBuilder.ToString());
             foreach (var pair in toplevelClasses) {
                 StringBuilder classBuilder = new StringBuilder();
                 lualibRefs.Clear();
@@ -621,14 +641,7 @@ namespace RoslynTool.CsToLua
                         string name = ps[i].Name;
                         sb.Append(name);
                         sb.Append(" = ");
-                        object v = args[i].Value;
-                        if (null == v) {
-                            sb.Append(" nil");
-                        } else if (v is string) {
-                            sb.AppendFormat("\"{0}\"", v.ToString());
-                        } else {
-                            sb.Append(v);
-                        }
+                        OutputTypedConstant(sb, args[i]);
                         if (i < ct - 1) {
                             sb.Append(", ");
                         }
@@ -640,21 +653,37 @@ namespace RoslynTool.CsToLua
                 for (int i = 0; i < ct2; ++i) {
                     var pair = namedArgs[i];
                     string name = pair.Key;
-                    object v = pair.Value.Value;
                     sb.Append(name);
                     sb.Append(" = ");
-                    if (null == v) {
-                        sb.Append(" nil");
-                    } else if (v is string) {
-                        sb.AppendFormat("\"{0}\"", v.ToString());
-                    } else {
-                        sb.Append(v);
-                    }
+                    OutputTypedConstant(sb, pair.Value);
                     if (i < ct2 - 1) {
                         sb.Append(", ");
                     }
                 }
                 sb.AppendLine("}},");
+            }
+        }
+        private static void OutputTypedConstant(StringBuilder sb, TypedConstant tc)
+        {
+            if (tc.Kind == TypedConstantKind.Array) {
+                sb.Append("{");
+                var vals = tc.Values;
+                for (int ix = 0; ix < vals.Length; ++ix) {
+                    OutputTypedConstant(sb, vals[ix]);
+                    if (ix < vals.Length - 1) {
+                        sb.Append(", ");
+                    }
+                }
+                sb.Append("}");
+            } else {
+                object v = tc.Value;
+                if (null == v) {
+                    sb.Append("nil");
+                } else if (v is string) {
+                    sb.AppendFormat("\"{0}\"", v.ToString());
+                } else {
+                    sb.Append(v);
+                }
             }
         }
         private static void BuildExternEnums(StringBuilder sb)
@@ -776,6 +805,12 @@ namespace RoslynTool.CsToLua
                 }
                 sb.Append("}, __exist = function(k) return false; end};");
                 sb.AppendLine();
+            }
+        }
+        private static void BuildReferencedExternTypes(StringBuilder sb)
+        {
+            foreach (var key in SymbolTable.Instance.ReferencedExternTypes) {
+                sb.AppendLine(key);
             }
         }
         private static void BuildLuaClass(StringBuilder sb, MergedNamespaceInfo toplevelMni, Dictionary<string, MergedClassInfo> toplevelMcis, HashSet<string> lualibRefs)

@@ -24,6 +24,10 @@ namespace RoslynTool.CsToLua
         {
             get { return m_ExternTypes; }
         }
+        internal Dictionary<string, INamedTypeSymbol> InternTypes
+        {
+            get { return m_InternTypes; }
+        }
         internal Dictionary<string, INamedTypeSymbol> IgnoredTypes
         {
             get { return m_IgnoredTypes; }
@@ -39,6 +43,10 @@ namespace RoslynTool.CsToLua
         internal Dictionary<string, HashSet<string>> Requires
         {
             get { return m_Requires; }
+        }
+        public SortedSet<string> ReferencedExternTypes
+        {
+            get { return m_ReferencedExternTypes; }
         }
         internal Dictionary<string, ITypeSymbol> ExternEnums
         {
@@ -84,6 +92,11 @@ namespace RoslynTool.CsToLua
             }
             return ret;
         }
+        internal void SymbolClassified()
+        {
+            Console.WriteLine("Symbol size, Extern:{0} Intern:{1} Ignore:{2}", m_ExternTypes.Count, m_InternTypes.Count, m_IgnoredTypes.Count);
+            m_UseExternTypes = m_ExternTypes.Count < m_InternTypes.Count;
+        }
         internal bool IsIgnoredSymbol(ITypeSymbol sym)
         {
             return m_IgnoredTypes.ContainsKey(ClassInfo.GetFullName(sym));
@@ -114,23 +127,33 @@ namespace RoslynTool.CsToLua
         }
         internal bool IsCs2LuaSymbol(IMethodSymbol sym)
         {
-            return sym.ContainingAssembly == m_AssemblySymbol && !m_ExternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true));
+            return sym.ContainingAssembly == m_AssemblySymbol && 
+                (m_UseExternTypes && !m_ExternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true)) || 
+                !m_UseExternTypes && !m_InternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true)));
         }
         internal bool IsCs2LuaSymbol(IFieldSymbol sym)
         {
-            return sym.ContainingAssembly == m_AssemblySymbol && !m_ExternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true));
+            return sym.ContainingAssembly == m_AssemblySymbol &&
+                (m_UseExternTypes && !m_ExternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true)) ||
+                !m_UseExternTypes && !m_InternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true)));
         }
         internal bool IsCs2LuaSymbol(IPropertySymbol sym)
         {
-            return sym.ContainingAssembly == m_AssemblySymbol && !m_ExternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true));
+            return sym.ContainingAssembly == m_AssemblySymbol &&
+                (m_UseExternTypes && !m_ExternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true)) ||
+                !m_UseExternTypes && !m_InternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true)));
         }
         internal bool IsCs2LuaSymbol(IEventSymbol sym)
         {
-            return sym.ContainingAssembly == m_AssemblySymbol && !m_ExternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true));
+            return sym.ContainingAssembly == m_AssemblySymbol &&
+                (m_UseExternTypes && !m_ExternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true)) ||
+                !m_UseExternTypes && !m_InternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym.ContainingType, true)));
         }
         internal bool IsCs2LuaSymbol(ITypeSymbol sym)
         {
-            return sym.ContainingAssembly == m_AssemblySymbol && !m_ExternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym, true));
+            return sym.ContainingAssembly == m_AssemblySymbol && 
+                (m_UseExternTypes && !m_ExternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym, true)) || 
+                !m_UseExternTypes && !m_InternTypes.ContainsKey(ClassInfo.SpecialGetFullTypeName(sym, true)));
         }
         internal void Init(CSharpCompilation compilation)
         {
@@ -237,11 +260,14 @@ namespace RoslynTool.CsToLua
 
         private CSharpCompilation m_Compilation = null;
         private IAssemblySymbol m_AssemblySymbol = null;
+        private bool m_UseExternTypes = true;
         private Dictionary<string, INamedTypeSymbol> m_ExternTypes = new Dictionary<string, INamedTypeSymbol>();
+        private Dictionary<string, INamedTypeSymbol> m_InternTypes = new Dictionary<string, INamedTypeSymbol>();
         private Dictionary<string, INamedTypeSymbol> m_IgnoredTypes = new Dictionary<string, INamedTypeSymbol>();
         private Dictionary<string, INamespaceSymbol> m_NamespaceSymbols = new Dictionary<string, INamespaceSymbol>();
         private Dictionary<string, ClassSymbolInfo> m_ClassSymbols = new Dictionary<string, ClassSymbolInfo>();
         private Dictionary<string, HashSet<string>> m_Requires = new Dictionary<string, HashSet<string>>();
+        private SortedSet<string> m_ReferencedExternTypes = new SortedSet<string>();
         private Dictionary<string, ITypeSymbol> m_ExternEnums = new Dictionary<string, ITypeSymbol>();
         
         private Dictionary<string, List<SyntaxNode>> m_GenericTypeDefines = new Dictionary<string, List<SyntaxNode>>();

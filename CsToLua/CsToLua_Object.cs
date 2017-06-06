@@ -218,6 +218,10 @@ namespace RoslynTool.CsToLua
                 }
                 CodeBuilder.AppendLine();
             }
+            if (SymbolTable.ForXlua && mi.OutParamNames.Count > 0) {
+                CodeBuilder.AppendFormat("{0}local {1};", GetIndentString(), string.Join(", ", mi.OutParamNames.ToArray()));
+                CodeBuilder.AppendLine();
+            }
             //首先执行初始化列表
             var init = node.Initializer;
             if (null != init) {
@@ -320,10 +324,15 @@ namespace RoslynTool.CsToLua
                     if (null != oper) {
                         opd = oper.Value as IConversionExpression;
                     }
+                    CodeBuilder.AppendFormat("{0}", declSym.Type.TypeKind == TypeKind.Delegate ? "delegationwrap(" : string.Empty);
                     OutputExpressionSyntax(node.Initializer.Value, opd);
+                    CodeBuilder.AppendFormat("{0}", declSym.Type.TypeKind == TypeKind.Delegate ? ")" : string.Empty);
                     CodeBuilder.Append(",");
+                } else if (declSym.Type.TypeKind == TypeKind.Delegate) {
+                    CodeBuilder.Append("wrapdelegation{},");
                 } else {
-                    CodeBuilder.Append("__cs2lua_nil_field_value,");
+                    OutputDefaultValue(declSym.Type);
+                    CodeBuilder.Append(",");
                 }
                 CodeBuilder.AppendLine();
                 --m_Indent;
@@ -665,6 +674,10 @@ namespace RoslynTool.CsToLua
                         } else {
                             CodeBuilder.AppendFormat("{0}local {1} = wraparray{{...}};", GetIndentString(), mi.OriginalParamsName);
                         }
+                        CodeBuilder.AppendLine();
+                    }
+                    if (SymbolTable.ForXlua && mi.OutParamNames.Count > 0) {
+                        CodeBuilder.AppendFormat("{0}local {1};", GetIndentString(), string.Join(", ", mi.OutParamNames.ToArray()));
                         CodeBuilder.AppendLine();
                     }
                     node.Body.Accept(this);

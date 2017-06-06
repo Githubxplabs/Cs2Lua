@@ -891,7 +891,7 @@ namespace RoslynTool.CsToLua
                             CodeBuilder.Append("this:");
                         }
                         CodeBuilder.Append(manglingName);
-                        CodeBuilder.AppendFormat("({0}) end)", paramsString);
+                        CodeBuilder.AppendFormat("({0}); end)", paramsString);
                     } else {
                         VisitArgumentList(node.ArgumentList);
                     }
@@ -928,10 +928,11 @@ namespace RoslynTool.CsToLua
         public override void VisitArrayCreationExpression(ArrayCreationExpressionSyntax node)
         {
             if (null == node.Initializer) {
+                var oper = m_Model.GetOperation(node) as IArrayCreationExpression;
                 var rankspecs = node.Type.RankSpecifiers;
                 var rankspec = rankspecs[0];
                 int rank = rankspec.Rank;
-                if (rank > 1) {
+                if (rank >= 1) {
                     CodeBuilder.Append("(function() local arr = wraparray{};");
                     int ct = rankspec.Sizes.Count;
                     for (int i = 0; i < ct; ++i) {
@@ -942,7 +943,20 @@ namespace RoslynTool.CsToLua
                         if (i < ct - 1) {
                             CodeBuilder.Append("{};");
                         } else {
-                            CodeBuilder.Append("nil;");
+                            ITypeSymbol etype = null;
+                            if (null != oper && null != oper.ElementType) {
+                                etype = oper.ElementType;
+                                for (; ; ) {
+                                    var t = etype as IArrayTypeSymbol;
+                                    if (null != t) {
+                                        etype = t.ElementType;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+                            OutputDefaultValue(etype);
+                            CodeBuilder.Append(";");
                         }
                     }
                     for (int i = 0; i < ct; ++i) {
